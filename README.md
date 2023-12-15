@@ -7,6 +7,7 @@ Aplikacja łączy się z inną aplikacją i rozgrywa partię gry w okręty.
 ### Parametry uruchomieniowe
 Aplikacja obługuje następujące parametry:
 * `-mode [server|client]` - wskazuje tryb działania (jako serwer: przyjmuje połączenie, jako klient: nawiązuje połączenie z serwerem)
+* `-server S` - tylko w trybie client; serwer, z którym aplikacja ma się połączyć.
 * `-port N` - port, na którym aplikacja ma się komunikować.
 * `-map map-file` - ścieżka do pliku zawierającego mapę z rozmieszczeniem statków (format opisany w sekcji Mapa).
 
