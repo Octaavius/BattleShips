@@ -7,22 +7,26 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Random;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class ServerOrClient {
     private static final int BOARD_SIZE = 10;
     private static final String CLIENT = "client";
     private static final String SERVER = "server";
     private static final String END = "end";
-    private static String mode;
-    private static String serverAddress;
-    private static int port;
-    private static Path map;
     private static int remainingShips = 10;
     private static final BattleshipGenerator bg = BattleshipGenerator.defaultInstance();
     private static String shotCoordinates = " ";
-    private static int numberOfIncorrectCommands;
+    private static int numberOfIncorrectCommands = 3;
+    private static String prevAnswer = "start";
+    private static final ArrayList<Integer> availableFieldsToShot = IntStream.range(0, 100)
+            .boxed()
+            .collect(Collectors.toCollection(ArrayList::new));
+    ;
     private static String enemyMap = "??????????" +
             "??????????" +
             "??????????" +
@@ -33,7 +37,10 @@ public class ServerOrClient {
             "??????????" +
             "??????????" +
             "??????????";
-
+    private static String mode;
+    private static String serverAddress;
+    private static int port;
+    private static Path map;
     public static void main(String[] args) {
         fillArgs(args);
         if (SERVER.equals(mode)) {
@@ -63,7 +70,6 @@ public class ServerOrClient {
             while (true) {
                 // Odczytanie komunikatu od serwera
                 String clientMessage = clientIn.readLine();
-                System.out.println(clientMessage);
                 if (clientMessage == null) {
                     // Połączenie z serwerem zostało przerwane
                     break;
@@ -71,16 +77,24 @@ public class ServerOrClient {
 
                 // Obsługa otrzymanego komunikatu od serwera
                 String messageToSend = handleServerMessage(clientMessage);
-                if (Objects.equals(messageToSend, END)) return;
-                boolean newShot = false;
-                while (!newShot) {
-                    shotCoordinates = generateRandomCoordinate();
-                    if (enemyMap.charAt(coordinatesToIndex(shotCoordinates)) == '?') {
-                        newShot = true;
-                    }
+                System.out.println("CLIENT: " + clientMessage);
+
+                if (Objects.equals(messageToSend, END)) {
+                    printWinInfo();
+                    return;
                 }
-                String fullMessage = messageToSend + ";" + shotCoordinates;
-                System.out.println(fullMessage);
+
+                shotCoordinates = generateRandomCoordinate();
+
+                String fullMessage;
+                if (!messageToSend.equals("ostatni zatopiony")) {
+                    fullMessage = messageToSend + ";" + shotCoordinates;
+                    System.out.println("ME: " + fullMessage);
+                } else {
+                    fullMessage = messageToSend;
+                    System.out.println("ME: " + fullMessage);
+                    printLoseInfo();
+                }
                 clientOut.println(fullMessage);
             }
 
@@ -108,30 +122,33 @@ public class ServerOrClient {
             while (true) {
                 // Odczytanie komunikatu od serwera
                 String serverMessage = serverIn.readLine();
-                System.out.println(serverMessage);
                 if (serverMessage == null) {
                     // Połączenie z serwerem zostało przerwane
                     System.out.println("no message");
                     break;
                 }
+                System.out.println("SERVER: " + serverMessage);
 
                 // Obsługa otrzymanego komunikatu od serwera
 
                 String messageToSend = handleServerMessage(serverMessage);
-                if (Objects.equals(messageToSend, END)) return;
+                prevAnswer = messageToSend;
 
-                boolean newShot = false;
-                while (!newShot) {
-                    shotCoordinates = generateRandomCoordinate();
-                    if (enemyMap.charAt(coordinatesToIndex(shotCoordinates)) == '?') {
-                        newShot = true;
-                    }
+                if (messageToSend.equals(END)){
+                    printWinInfo();
+                    return;
                 }
+
+                shotCoordinates = generateRandomCoordinate();
+
                 String fullMessage;
                 if (!messageToSend.equals("ostatni zatopiony")) {
                     fullMessage = messageToSend + ";" + shotCoordinates;
+                    System.out.println("ME: " + fullMessage);
                 } else {
                     fullMessage = messageToSend;
+                    System.out.println("ME: " + fullMessage);
+                    printLoseInfo();
                 }
                 serverOut.println(fullMessage);
             }
@@ -139,7 +156,7 @@ public class ServerOrClient {
         } catch (IOException e) {
             //e.printStackTrace();
 
-            System.out.println("End of the program.");
+            //System.out.println("End of the program.");
         }
     }
 
@@ -151,14 +168,18 @@ public class ServerOrClient {
         Random random = new Random();
 
         // Randomly select a row and column
-        int row = random.nextInt(BOARD_SIZE) + 1; // Adding 1 to convert to 1-based index
-        int col = random.nextInt(BOARD_SIZE) + 'A'; // Adding 'A' to convert to letter
+        int coordinatesIndex = random.nextInt(availableFieldsToShot.size());
+        int coordinates = availableFieldsToShot.get(coordinatesIndex);
+        availableFieldsToShot.remove(availableFieldsToShot.get(coordinatesIndex));
+
+        int row = (coordinates / 10) + 'A'; // Adding 'A' to convert to letter
+        int col = (coordinates % 10) + 1; // Adding 1 to convert to 1-based index
 
         // Convert column value to letter representation (A, B, C, ...)
-        char colChar = (char) col;
+        char rowChar = (char) row;
 
         // Combine row and column to form the coordinate string
-        return colChar + Integer.toString(row);
+        return rowChar + Integer.toString(col);
     }
 
     private static void completeEnemyMapWithDots(Coordinates coordinates, String previous) {
@@ -205,8 +226,6 @@ public class ServerOrClient {
         }
     }
 
-    ;
-
     private static String handleServerMessage(String message) throws IOException {
         // Rozdzielenie komendy i współrzędnych
         String[] parts = message.split(";");
@@ -233,12 +252,8 @@ public class ServerOrClient {
                 // Tutaj dodaj kod obsługujący trafiony zatopiony
                 break;
             case "ostatni zatopiony":
-                System.out.println("Wygrana");
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '#');
                 enemyMap = enemyMap.replace("?", ".");
-                printBoard(enemyMap);
-                System.out.println();
-                printBoard(new String(Files.readAllBytes(map)));
                 return END;
             // Tutaj dodaj kod obsługujący ostatni zatopiony
             // Możesz również zakończyć pętlę gry lub podjąć inne działania
@@ -251,10 +266,24 @@ public class ServerOrClient {
                     System.out.println("Bład komunikacji");
                     return END;
                 }
+                return prevAnswer;
         }
         return handleCoordinates(coordinates);
         // Tutaj można dodać kod obsługujący wprowadzanie ruchu gracza i wysłanie go do serwera
         // Przykład: serverOut.println("strzał;B2");
+    }
+
+    private static void printLoseInfo() throws IOException {
+        System.out.println("Przegrana");
+        printBoard(enemyMap);
+        System.out.println();
+        printBoard(new String(Files.readAllBytes(map)));
+    }
+    private static void printWinInfo() throws IOException {
+        System.out.println("Wygrana");
+        printBoard(enemyMap);
+        System.out.println();
+        printBoard(new String(Files.readAllBytes(map)));
     }
 
     private static String handleCoordinates(Coordinates coordinates) throws IOException {
@@ -271,12 +300,6 @@ public class ServerOrClient {
                 if (checkIfLastPartOfShip(coordinates, stringMap, " ")) {
                     if (remainingShips == 1) {
                         messageToServer = "ostatni zatopiony";
-                        System.out.println("Przegrana");
-                        stringMap = replaceChar(stringMap, shotIndex, '@');
-                        writeStringToFile(map, stringMap);
-                        printBoard(enemyMap);
-                        System.out.println();
-                        printBoard(new String(Files.readAllBytes(map)));
                     } else {
                         messageToServer = "trafiony zatopiony";
                         remainingShips--;
