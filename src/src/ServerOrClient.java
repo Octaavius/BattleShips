@@ -22,6 +22,7 @@ public class ServerOrClient {
     private static int remainingShips = 10;
     private static final BattleshipGenerator bg = BattleshipGenerator.defaultInstance();
     private static String shotCoordinates = " ";
+    private static int numberOfIncorrectCommands;
     private static String enemyMap = "??????????" +
             "??????????" +
             "??????????" +
@@ -32,6 +33,7 @@ public class ServerOrClient {
             "??????????" +
             "??????????" +
             "??????????";
+
     public static void main(String[] args) {
         fillArgs(args);
         if (SERVER.equals(mode)) {
@@ -43,10 +45,12 @@ public class ServerOrClient {
             System.out.println("mode: " + mode);
         }
     }
+
     private static void runServer(int port) {
         try {
             String stringMap = bg.generateMap();
             writeStringToFile(map, stringMap);
+            printBoard(stringMap);
 
             ServerSocket serverSocket = new ServerSocket(port);
             System.out.println("Oczekiwanie na połączenie...");
@@ -59,6 +63,7 @@ public class ServerOrClient {
             while (true) {
                 // Odczytanie komunikatu od serwera
                 String clientMessage = clientIn.readLine();
+                System.out.println(clientMessage);
                 if (clientMessage == null) {
                     // Połączenie z serwerem zostało przerwane
                     break;
@@ -66,27 +71,30 @@ public class ServerOrClient {
 
                 // Obsługa otrzymanego komunikatu od serwera
                 String messageToSend = handleServerMessage(clientMessage);
+                if (Objects.equals(messageToSend, END)) return;
                 boolean newShot = false;
-                while(!newShot){
+                while (!newShot) {
                     shotCoordinates = generateRandomCoordinate();
-                    if(enemyMap.charAt(coordinatesToIndex(shotCoordinates)) == '?'){
+                    if (enemyMap.charAt(coordinatesToIndex(shotCoordinates)) == '?') {
                         newShot = true;
                     }
                 }
-                System.out.println("REMAIN: " + remainingShips);
-                System.out.println(shotCoordinates);
-                clientOut.println(messageToSend + ";" + shotCoordinates);
+                String fullMessage = messageToSend + ";" + shotCoordinates;
+                System.out.println(fullMessage);
+                clientOut.println(fullMessage);
             }
 
         } catch (IOException e) {
             //e.printStackTrace();
-            System.out.println("End of the program.");
+            //System.out.println("End of the program.");
         }
     }
+
     private static void runClient(String serverAddress, int port) {
         try {
             String stringMap = bg.generateMap();
             writeStringToFile(map, stringMap);
+            printBoard(stringMap);
 
             Socket socket = new Socket(serverAddress, port);
             BufferedReader serverIn = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -100,6 +108,7 @@ public class ServerOrClient {
             while (true) {
                 // Odczytanie komunikatu od serwera
                 String serverMessage = serverIn.readLine();
+                System.out.println(serverMessage);
                 if (serverMessage == null) {
                     // Połączenie z serwerem zostało przerwane
                     System.out.println("no message");
@@ -109,18 +118,22 @@ public class ServerOrClient {
                 // Obsługa otrzymanego komunikatu od serwera
 
                 String messageToSend = handleServerMessage(serverMessage);
-                if(Objects.equals(messageToSend, END)) return;
+                if (Objects.equals(messageToSend, END)) return;
 
                 boolean newShot = false;
-                while(!newShot){
+                while (!newShot) {
                     shotCoordinates = generateRandomCoordinate();
-                    if(enemyMap.charAt(coordinatesToIndex(shotCoordinates)) == '?'){
+                    if (enemyMap.charAt(coordinatesToIndex(shotCoordinates)) == '?') {
                         newShot = true;
                     }
                 }
-                System.out.println("REMAIN: " + remainingShips);
-                System.out.println(shotCoordinates);
-                serverOut.println(messageToSend + ";" + shotCoordinates);
+                String fullMessage;
+                if (!messageToSend.equals("ostatni zatopiony")) {
+                    fullMessage = messageToSend + ";" + shotCoordinates;
+                } else {
+                    fullMessage = messageToSend;
+                }
+                serverOut.println(fullMessage);
             }
 
         } catch (IOException e) {
@@ -129,9 +142,11 @@ public class ServerOrClient {
             System.out.println("End of the program.");
         }
     }
-    private static int coordinatesToIndex(String coordinates){
-        return (coordinates.charAt(0) - 'A')*BOARD_SIZE + Integer.parseInt(coordinates.substring(1)) - 1;
+
+    private static int coordinatesToIndex(String coordinates) {
+        return (coordinates.charAt(0) - 'A') * BOARD_SIZE + Integer.parseInt(coordinates.substring(1)) - 1;
     }
+
     private static String generateRandomCoordinate() {
         Random random = new Random();
 
@@ -145,99 +160,103 @@ public class ServerOrClient {
         // Combine row and column to form the coordinate string
         return colChar + Integer.toString(row);
     }
-    private static void completeEnemyMapWithDots(Coordinates coordinates, String previous){
+
+    private static void completeEnemyMapWithDots(Coordinates coordinates, String previous) {
         int upperCell = (coordinates.row() - 1) * BOARD_SIZE + coordinates.column();
         int lowerCell = (coordinates.row() + 1) * BOARD_SIZE + coordinates.column();
         int rightCell = coordinates.row() * BOARD_SIZE + coordinates.column() + 1;
         int leftCell = coordinates.row() * BOARD_SIZE + coordinates.column() - 1;
 
-        if(coordinates.row() > 0 && !previous.equals("upper")){
+        if (coordinates.row() > 0 && !previous.equals("upper")) {
             completeWithDotsHelper(upperCell, "lower");
         }
-        if(coordinates.row() < BOARD_SIZE - 1 && !previous.equals("lower")){
+        if (coordinates.row() < BOARD_SIZE - 1 && !previous.equals("lower")) {
             completeWithDotsHelper(lowerCell, "upper");
         }
-        if(coordinates.row() > 0 && !previous.equals("left")){
+        if (coordinates.row() > 0 && !previous.equals("left")) {
             completeWithDotsHelper(leftCell, "right");
         }
-        if(coordinates.column() < BOARD_SIZE - 1 && !previous.equals("right")){
+        if (coordinates.column() < BOARD_SIZE - 1 && !previous.equals("right")) {
             completeWithDotsHelper(rightCell, "left");
         }
     }
-    private static void completeWithDotsHelper(int cell, String previous){
-        if(enemyMap.charAt(cell) == '?' || enemyMap.charAt(cell) == '.'){
+
+    private static void completeWithDotsHelper(int cell, String previous) {
+        if (enemyMap.charAt(cell) == '?' || enemyMap.charAt(cell) == '.') {
             enemyMap = replaceChar(enemyMap, cell, '.');
             completeDiagonal(cell, previous);
-        } else
-        if(enemyMap.charAt(cell) == '#') {
+        } else if (enemyMap.charAt(cell) == '#') {
             completeEnemyMapWithDots(new Coordinates(cell), previous);
         }
     }
-    private static void completeDiagonal(int cell, String previous){
-        switch (previous){
+
+    private static void completeDiagonal(int cell, String previous) {
+        switch (previous) {
             case "lower":
             case "upper":
-                if(cell % 10 != 0) enemyMap = replaceChar(enemyMap, cell - 1, '.');
-                if(cell % 10 != 9) enemyMap = replaceChar(enemyMap, cell + 1, '.');
+                if (cell % 10 != 0) enemyMap = replaceChar(enemyMap, cell - 1, '.');
+                if (cell % 10 != 9) enemyMap = replaceChar(enemyMap, cell + 1, '.');
                 break;
             case "right":
             case "left":
-                if(cell >= 10) enemyMap = replaceChar(enemyMap, cell - 10, '.');
-                if(cell < 90) enemyMap = replaceChar(enemyMap, cell + 10, '.');
+                if (cell >= 10) enemyMap = replaceChar(enemyMap, cell - 10, '.');
+                if (cell < 90) enemyMap = replaceChar(enemyMap, cell + 10, '.');
                 break;
         }
-    };
+    }
+
+    ;
+
     private static String handleServerMessage(String message) throws IOException {
         // Rozdzielenie komendy i współrzędnych
         String[] parts = message.split(";");
         String command = parts[0];
         Coordinates coordinates = null;
-        if(parts.length == 2)
+        if (parts.length == 2)
             coordinates = new Coordinates(parts[1]);
 
         int previousShotIndex = 0;
-        if(!Objects.equals(command, "start"))
+        if (!Objects.equals(command, "start"))
             previousShotIndex = coordinatesToIndex(shotCoordinates);
         // Obsługa różnych komend od serwera
         switch (command) {
             case "pudło":
-                System.out.println("Pudło!");
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '.');
-                printBoard(enemyMap);
                 break;
             case "trafiony":
-                System.out.println("Trafiony!");
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '#');
-                printBoard(enemyMap);
                 // Tutaj dodaj kod obsługujący trafiony
                 break;
             case "trafiony zatopiony":
-                System.out.println("Trafiony zatopiony! Ty zatopił statek.");
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '#');
                 completeEnemyMapWithDots(new Coordinates(previousShotIndex), " ");
-                printBoard(enemyMap);
                 // Tutaj dodaj kod obsługujący trafiony zatopiony
                 break;
             case "ostatni zatopiony":
                 System.out.println("Wygrana");
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '#');
-                enemyMap = enemyMap.replace("?",".");
+                enemyMap = enemyMap.replace("?", ".");
                 printBoard(enemyMap);
                 System.out.println();
                 printBoard(new String(Files.readAllBytes(map)));
                 return END;
-                // Tutaj dodaj kod obsługujący ostatni zatopiony
-                // Możesz również zakończyć pętlę gry lub podjąć inne działania
+            // Tutaj dodaj kod obsługujący ostatni zatopiony
+            // Możesz również zakończyć pętlę gry lub podjąć inne działania
             case "start":
-                System.out.println("START!!!");
                 break;
             default:
                 System.out.println("Nieznana komenda od serwera: " + message);
+                numberOfIncorrectCommands--;
+                if (numberOfIncorrectCommands == 0) {
+                    System.out.println("Bład komunikacji");
+                    return END;
+                }
         }
         return handleCoordinates(coordinates);
         // Tutaj można dodać kod obsługujący wprowadzanie ruchu gracza i wysłanie go do serwera
         // Przykład: serverOut.println("strzał;B2");
     }
+
     private static String handleCoordinates(Coordinates coordinates) throws IOException {
         String messageToServer = "";
         String stringMap = new String(Files.readAllBytes(map));
@@ -268,7 +287,7 @@ public class ServerOrClient {
                 stringMap = replaceChar(stringMap, shotIndex, '@');
                 break;
             case '@':
-                if(checkIfLastPartOfShip(coordinates, stringMap, " ")){
+                if (checkIfLastPartOfShip(coordinates, stringMap, " ")) {
                     messageToServer = "trafiony zatopiony";
                 } else {
                     messageToServer = "trafiony";
@@ -281,7 +300,8 @@ public class ServerOrClient {
         writeStringToFile(map, stringMap);
         return messageToServer;
     }
-    private static boolean checkIfLastPartOfShip(Coordinates coordinates, String stringMap, String previous){
+
+    private static boolean checkIfLastPartOfShip(Coordinates coordinates, String stringMap, String previous) {
         int upperCell = (coordinates.row() - 1) * BOARD_SIZE + coordinates.column();
         int lowerCell = (coordinates.row() + 1) * BOARD_SIZE + coordinates.column();
         int rightCell = coordinates.row() * BOARD_SIZE + coordinates.column() + 1;
@@ -290,42 +310,42 @@ public class ServerOrClient {
         String result2 = "DOT";
         String result3 = "DOT";
         String result4 = "DOT";
-        System.out.println(coordinates.row() + " " + coordinates.column());
-        printBoard(stringMap);
-        if(coordinates.row() > 0 && !previous.equals("upper")){
+        if (coordinates.row() > 0 && !previous.equals("upper")) {
             result1 = cellOfSunkenShip(upperCell, stringMap, "lower");
-            if(result1.equals("NOT_LAST"))return false;
+            if (result1.equals("NOT_LAST")) return false;
         }
-        if(coordinates.row() < BOARD_SIZE - 1 && !previous.equals("lower")){
+        if (coordinates.row() < BOARD_SIZE - 1 && !previous.equals("lower")) {
             result2 = cellOfSunkenShip(lowerCell, stringMap, "upper");
-            if(result2.equals("NOT_LAST"))return false;
+            if (result2.equals("NOT_LAST")) return false;
         }
-        if(coordinates.column() > 0 && !previous.equals("left")){
+        if (coordinates.column() > 0 && !previous.equals("left")) {
             result3 = cellOfSunkenShip(leftCell, stringMap, "right");
-            if(result3.equals("NOT_LAST"))return false;
+            if (result3.equals("NOT_LAST")) return false;
         }
-        if(coordinates.column() < BOARD_SIZE - 1 && !previous.equals("right")){
+        if (coordinates.column() < BOARD_SIZE - 1 && !previous.equals("right")) {
             result4 = cellOfSunkenShip(rightCell, stringMap, "left");
-            if(result4.equals("NOT_LAST"))return false;
+            if (result4.equals("NOT_LAST")) return false;
         }
-        if(result1.equals("DOT") && result2.equals("DOT") && result3.equals("DOT") && result4.equals("DOT")){
+        if (result1.equals("DOT") && result2.equals("DOT") && result3.equals("DOT") && result4.equals("DOT")) {
             return true;
-        } else if(result1.equals("LAST") || result2.equals("LAST") || result3.equals("LAST") || result4.equals("LAST")){
+        } else if (result1.equals("LAST") || result2.equals("LAST") || result3.equals("LAST") || result4.equals("LAST")) {
             return true;
         } else return false;
     }
-    private static String cellOfSunkenShip(int cell, String stringMap, String previous){
-        if(stringMap.charAt(cell) != '.' && stringMap.charAt(cell) != '~'){
-            if(stringMap.charAt(cell) == '#') {
+
+    private static String cellOfSunkenShip(int cell, String stringMap, String previous) {
+        if (stringMap.charAt(cell) != '.' && stringMap.charAt(cell) != '~') {
+            if (stringMap.charAt(cell) == '#') {
                 return "NOT_LAST";
             }
-            if(stringMap.charAt(cell) == '@') {
-                if(checkIfLastPartOfShip(new Coordinates(cell), stringMap, previous)) return "DOT";
+            if (stringMap.charAt(cell) == '@') {
+                if (checkIfLastPartOfShip(new Coordinates(cell), stringMap, previous)) return "DOT";
                 else return "NOT_LAST";
             }
         }
         return "DOT";
     }
+
     private static void fillArgs(String[] args) {
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -352,17 +372,20 @@ public class ServerOrClient {
             }
         }
     }
-    private static String replaceChar(String str, int index, char replacementChar){
+
+    private static String replaceChar(String str, int index, char replacementChar) {
         StringBuilder stringBuilder = new StringBuilder(str);
         stringBuilder.setCharAt(index, replacementChar);
         return stringBuilder.toString();
     }
+
     private static void writeStringToFile(Path filePath, String content) throws IOException {
         Files.write(filePath, content.getBytes(), StandardOpenOption.TRUNCATE_EXISTING);
     }
+
     private static void printBoard(String stringMap) {
-        for(int i = 0; i < BOARD_SIZE; ++i){
-            for(int j = 0; j < BOARD_SIZE; ++j){
+        for (int i = 0; i < BOARD_SIZE; ++i) {
+            for (int j = 0; j < BOARD_SIZE; ++j) {
                 int charIndex = i * BOARD_SIZE + j;
                 System.out.print(stringMap.charAt(charIndex));
             }
