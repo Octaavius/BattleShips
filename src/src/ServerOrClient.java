@@ -17,12 +17,15 @@ public class ServerOrClient {
     private static final int BOARD_SIZE = 10;
     private static final String CLIENT = "client";
     private static final String SERVER = "server";
-    private static final String END = "end";
+    private static final String WIN = "win";
+    private static final String ERROR = "error";
+    private static final long TIMEOUT = 1000;
     private static int remainingShips = 10;
+
     private static final BattleshipGenerator bg = BattleshipGenerator.defaultInstance();
     private static String shotCoordinates = " ";
-    private static int numberOfIncorrectCommands = 3;
-    private static String prevAnswer = "start";
+    private static int numberOfFailures = 3;
+    private static String prevMessage = "start";
     private static final ArrayList<Integer> availableFieldsToShot = IntStream.range(0, 100)
             .boxed()
             .collect(Collectors.toCollection(ArrayList::new));
@@ -67,43 +70,12 @@ public class ServerOrClient {
             BufferedReader clientIn = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             PrintWriter clientOut = new PrintWriter(clientSocket.getOutputStream(), true);
 
-            while (true) {
-                // Odczytanie komunikatu od serwera
-                String clientMessage = clientIn.readLine();
-                if (clientMessage == null) {
-                    // Połączenie z serwerem zostało przerwane
-                    break;
-                }
-
-                // Obsługa otrzymanego komunikatu od serwera
-                String messageToSend = handleServerMessage(clientMessage);
-                System.out.println("CLIENT: " + clientMessage);
-
-                if (Objects.equals(messageToSend, END)) {
-                    printWinInfo();
-                    return;
-                }
-
-                shotCoordinates = generateRandomCoordinate();
-
-                String fullMessage;
-                if (!messageToSend.equals("ostatni zatopiony")) {
-                    fullMessage = messageToSend + ";" + shotCoordinates;
-                    System.out.println("ME: " + fullMessage);
-                } else {
-                    fullMessage = messageToSend;
-                    System.out.println("ME: " + fullMessage);
-                    printLoseInfo();
-                }
-                clientOut.println(fullMessage);
-            }
-
+            runGame(clientIn, clientOut, "SERVER");
         } catch (IOException e) {
             //e.printStackTrace();
             //System.out.println("End of the program.");
         }
     }
-
     private static void runClient(String serverAddress, int port) {
         try {
             String stringMap = bg.generateMap();
@@ -114,44 +86,11 @@ public class ServerOrClient {
             BufferedReader serverIn = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             PrintWriter serverOut = new PrintWriter(socket.getOutputStream(), true);
 
-            // Wysłanie komendy start do serwera
             shotCoordinates = generateRandomCoordinate();
             serverOut.println("start;" + shotCoordinates);
 
             // Główna pętla gry klienta
-            while (true) {
-                // Odczytanie komunikatu od serwera
-                String serverMessage = serverIn.readLine();
-                if (serverMessage == null) {
-                    // Połączenie z serwerem zostało przerwane
-                    System.out.println("no message");
-                    break;
-                }
-                System.out.println("SERVER: " + serverMessage);
-
-                // Obsługa otrzymanego komunikatu od serwera
-
-                String messageToSend = handleServerMessage(serverMessage);
-                prevAnswer = messageToSend;
-
-                if (messageToSend.equals(END)){
-                    printWinInfo();
-                    return;
-                }
-
-                shotCoordinates = generateRandomCoordinate();
-
-                String fullMessage;
-                if (!messageToSend.equals("ostatni zatopiony")) {
-                    fullMessage = messageToSend + ";" + shotCoordinates;
-                    System.out.println("ME: " + fullMessage);
-                } else {
-                    fullMessage = messageToSend;
-                    System.out.println("ME: " + fullMessage);
-                    printLoseInfo();
-                }
-                serverOut.println(fullMessage);
-            }
+            runGame(serverIn, serverOut, "CLIENT");
 
         } catch (IOException e) {
             //e.printStackTrace();
@@ -159,6 +98,70 @@ public class ServerOrClient {
             //System.out.println("End of the program.");
         }
     }
+    private static void runGame(BufferedReader input, PrintWriter output, String mode) throws IOException {
+        while (true) {
+            long startTime = System.currentTimeMillis();
+
+            // Send message to the server
+            // Read response from the server with timeout
+            boolean successfulCommunication = false;
+            while (System.currentTimeMillis() - startTime < TIMEOUT) {
+                if (input.ready()) {
+                    String inputMessage = input.readLine();
+
+                    if (inputMessage == null) {
+                        // Connection with the server has been terminated
+                        break;
+                    }
+
+                    printMessage(inputMessage, mode);
+
+                    // Handle server message and determine the next message to send
+                    String messageToSend = handleServerMessage(inputMessage);
+
+                    if (Objects.equals(messageToSend, WIN) || Objects.equals(messageToSend, ERROR)) {
+                        return;
+                    }
+
+                    shotCoordinates = generateRandomCoordinate();
+
+                    String fullMessageToSend;
+
+                    if (messageToSend.equals("ostatni zatopiony")) {
+                        fullMessageToSend = messageToSend;
+                        System.out.println("ME: " + fullMessageToSend);
+                        printLoseInfo();
+                        return;
+                    }
+
+                    fullMessageToSend = messageToSend + ";" + shotCoordinates;
+                    prevMessage =  fullMessageToSend;
+                    System.out.println("ME: " + fullMessageToSend);
+                    output.println(fullMessageToSend);
+                    // Exit the inner loop once the message is received
+                    successfulCommunication = true;
+                    break;
+                }
+            }
+            if(!successfulCommunication){
+                numberOfFailures--;
+                if(numberOfFailures == 0){
+                    System.out.println("Bład komunikacji");
+                    break;
+                } else {
+                    output.println(prevMessage);
+                }
+            }
+            // Continue with the next iteration of the outer loop
+        }
+    }
+    private static void printMessage(String message, String mode){
+        if(mode.equals(SERVER)){
+            System.out.println("CLIENT: " + message);
+        } else if(mode.equals(CLIENT)){
+            System.out.println("SERVER: " + message);
+        }
+    };
 
     private static int coordinatesToIndex(String coordinates) {
         return (coordinates.charAt(0) - 'A') * BOARD_SIZE + Integer.parseInt(coordinates.substring(1)) - 1;
@@ -244,33 +247,28 @@ public class ServerOrClient {
                 break;
             case "trafiony":
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '#');
-                // Tutaj dodaj kod obsługujący trafiony
                 break;
             case "trafiony zatopiony":
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '#');
                 completeEnemyMapWithDots(new Coordinates(previousShotIndex), " ");
-                // Tutaj dodaj kod obsługujący trafiony zatopiony
                 break;
             case "ostatni zatopiony":
                 enemyMap = replaceChar(enemyMap, previousShotIndex, '#');
                 enemyMap = enemyMap.replace("?", ".");
-                return END;
-            // Tutaj dodaj kod obsługujący ostatni zatopiony
-            // Możesz również zakończyć pętlę gry lub podjąć inne działania
+                printWinInfo();
+                return WIN;
             case "start":
                 break;
             default:
                 System.out.println("Nieznana komenda od serwera: " + message);
-                numberOfIncorrectCommands--;
-                if (numberOfIncorrectCommands == 0) {
+                numberOfFailures--;
+                if (numberOfFailures == 0) {
                     System.out.println("Bład komunikacji");
-                    return END;
+                    return ERROR;
                 }
-                return prevAnswer;
+                return prevMessage;
         }
         return handleCoordinates(coordinates);
-        // Tutaj można dodać kod obsługujący wprowadzanie ruchu gracza i wysłanie go do serwera
-        // Przykład: serverOut.println("strzał;B2");
     }
 
     private static void printLoseInfo() throws IOException {
